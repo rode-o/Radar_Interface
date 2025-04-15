@@ -1,74 +1,49 @@
-# controllers/spectrogram_controller.py
+# controllers/spectrogram_controller.py (simplified snippet)
 
 import numpy as np
 from PyQt6.QtCore import QTimer
 
 class SpectrogramController:
-    """
-    Controller that ties the SdrModel (data) and the SpectrogramView (UI) together.
-    It periodically reads data from the model, processes it (FFT), and updates the view.
-    """
-
     def __init__(self, model, view, fft_size=1024, history=200):
         self.model = model
         self.view = view
         self.fft_size = fft_size
-
-        # We'll store a rolling spectrogram of shape (history, fft_size).
         self.history = history
         self.spectrogram_data = np.zeros((history, fft_size), dtype=np.float32)
 
-        # Create a QTimer to periodically update
         self.timer = QTimer()
-        self.timer.setInterval(50)  # ~20 updates/second
-        self.timer.timeout.connect(self.update_spectrogram)
+        self.timer.setInterval(50)
+        self.timer.timeout.connect(self._process_data)
 
     def start(self):
-        """
-        Start the periodic updates.
-        """
+        # Start the radio threads
+        self.model.start()
+        # Start the GUI timer
         self.timer.start()
 
     def stop(self):
-        """
-        Stop the periodic updates.
-        """
         self.timer.stop()
+        self.model.stop()
 
-    def update_spectrogram(self):
+    def _process_data(self):
         """
-        Periodic callback: read samples from the model, compute FFT,
-        scroll the spectrogram buffer, and tell the view to update.
+        Periodically check the RX queue for new blocks, do FFT, update spectrogram.
         """
-        samples = self.model.read_samples(self.fft_size)
-        if samples is None or len(samples) == 0:
-            return
+        # We'll drain the queue so we keep up.
+        while not self.model.rx_queue.empty():
+            block = self.model.rx_queue.get()
+            if block is not None and len(block) > 0:
+                # Perform FFT or correlation, etc.
+                psd = self._compute_psd(block)
+                # Scroll spectrogram
+                self.spectrogram_data[:-1, :] = self.spectrogram_data[1:, :]
+                self.spectrogram_data[-1, :] = psd
+                # Update view
+                self.view.update_display(self.spectrogram_data)
 
-        # Compute power spectrum in dB
-        power_spectrum = self._compute_power_spectrum(samples)
-
-        # Scroll the old rows up
-        self.spectrogram_data[:-1, :] = self.spectrogram_data[1:, :]
-        # Insert the new row at the bottom
-        self.spectrogram_data[-1, :] = power_spectrum
-
-        # Update the view
-        self.view.update_display(self.spectrogram_data)
-
-    def _compute_power_spectrum(self, samples):
-        """
-        Apply a window function, compute FFT, return log-power (dB) spectrum.
-        """
+    def _compute_psd(self, samples):
         window = np.hanning(len(samples))
         windowed = samples * window
-
         spectrum = np.fft.fftshift(np.fft.fft(windowed, self.fft_size))
-        power_spectrum = 20 * np.log10(np.abs(spectrum) + 1e-12)
-        return power_spectrum.astype(np.float32)
-
-    def close(self):
-        """
-        Clean up resources if needed. Make sure we stop any timers and close the device.
-        """
-        self.stop()
-        self.model.close()
+        power = 20 * np.log10(np.abs(spectrum)+1e-12)
+        return power.astype(np.float32)

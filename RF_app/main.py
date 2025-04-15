@@ -7,23 +7,21 @@ from views.spectrogram_view import SpectrogramView
 from controllers.spectrogram_controller import SpectrogramController
 
 def main():
-    # Create the Qt application
     app = QApplication(sys.argv)
 
-    # Instantiate the MVC components
-    model = SdrModel(sample_rate=2e6, freq=915e6, gain=40)
+    # Instantiate Model, View, Controller
+    model = SdrModel(sample_rate=2e6, center_freq=915e6, rx_gain=40)
     view = SpectrogramView()
     controller = SpectrogramController(model, view, fft_size=1024, history=200)
 
-    # Show the GUI
+    # Show the GUI and start streaming
     view.show()
-    # Start the spectrogram updates
     controller.start()
 
     # Run the Qt event loop
     exit_code = app.exec()
 
-    # On exit, do cleanup
+    # Cleanup
     controller.close()
     sys.exit(exit_code)
 
